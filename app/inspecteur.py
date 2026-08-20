@@ -7,7 +7,7 @@ sur le mauvais creux ou un indicateur qui ne dit pas ce qu'on lirait à la main 
 invisibles dans un tableau de chiffres, et évidents sur un graphique.
 
 Lancement :
-    streamlit run app/inspecteur.py
+    streamlit run app/inspecteur.py    
 """
 
 from __future__ import annotations
