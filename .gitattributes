@@ -1,0 +1,14 @@
+# Fins de ligne normalisées en LF DANS le dépôt.
+#
+# Sans cette règle, Git convertit en CRLF au moment d'écrire la copie de travail
+# sur Windows. Les fichiers changent alors sans qu'on l'ait demandé, et tout
+# outil qui compare du texte sur plusieurs lignes échoue de façon
+# incompréhensible. Le dépôt reste ainsi identique quel que soit le système.
+* text=auto eol=lf
+
+# Binaires : aucune conversion, sous peine de corruption.
+*.parquet binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary

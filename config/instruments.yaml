@@ -1,0 +1,113 @@
+# ---------------------------------------------------------------------------
+# Correspondance entre mes noms d'instruments et ceux de chaque courtier,
+# et périodes de données exploitables.
+#
+# Pourquoi ce fichier : le même instrument ne porte PAS le même nom partout.
+# Le Dow Jones s'appelle « US30.cash » chez FTMO et « US30 » chez IC Markets.
+# Sans cette table, tout basculement de courtier casse le code.
+#
+# Les dates ci-dessous ont été MESURÉES à l'étape 0, pas supposées.
+# Voir docs/etape0-conclusions.md.
+# ---------------------------------------------------------------------------
+
+instruments:
+  US30:
+    classe: indice
+    recherche: [US30, USA30, DJ30, DOW]
+    ftmo: "US30.cash"
+    icmarket: "US30"
+    # Valeur du point, mesurée à l'étape 0 (10^-décimales).
+    point: 0.01
+    # Valeur d'un pip, convention d'affichage de l'instrument.
+    pip: 1.0
+    # Caractéristiques du contrat chez FTMO, relevées à l'étape 0.
+    taille_contrat: 1.0
+    volume_min: 0.01
+    volume_pas: 0.01
+    historique_m1_ftmo: 2019-02-08
+    # MESURÉ le 20/08/2026, et non déduit. FTMO n'a aucun historique US30 avant
+    # le 08/02/2019 : ce n'est pas un effet de MaxBars, les années 2010 à 2018
+    # sont vides côté FTMO alors qu'IC Markets remonte à 2012.
+    # Dès la première semaine disponible (11/02/2019), 0,0 % de clôtures
+    # identiques à IC Markets sur 1 306 bougies communes, et le taux reste entre
+    # 0,0 et 0,1 % jusqu'en 2026. Aucune bascule à chercher : elle précède le
+    # début de l'historique, donc les 7,5 ans disponibles sont tous exploitables.
+    cotations_propres_depuis: 2019-02-08
+    # IC Markets impose 0.1 lot minimum sur cet instrument (0.01 chez FTMO).
+    volume_min_icmarket: 0.1
+
+  GBPUSD:
+    classe: forex
+    recherche: [GBPUSD]
+    ftmo: "GBPUSD"
+    icmarket: "GBPUSD"
+    # Valeur du point, mesurée à l'étape 0 (10^-décimales).
+    point: 0.00001
+    # Valeur d'un pip, convention d'affichage de l'instrument.
+    pip: 0.0001
+    # Caractéristiques du contrat chez FTMO, relevées à l'étape 0.
+    taille_contrat: 100000.0
+    volume_min: 0.01
+    volume_pas: 0.01
+    historique_m1_ftmo: 2001-09-10
+    # Seul instrument où la bascule est mesurée avec précision : 100 % de
+    # clôtures identiques au 10/03/2017, 0,6 % au 10/04/2017. Transition nette.
+    cotations_propres_depuis: 2017-04-01
+
+  XAUUSD:
+    classe: metal
+    recherche: [XAUUSD, GOLD]
+    ftmo: "XAUUSD"
+    icmarket: "XAUUSD"
+    # Valeur du point, mesurée à l'étape 0 (10^-décimales).
+    point: 0.01
+    # Valeur d'un pip, convention d'affichage de l'instrument.
+    pip: 0.1
+    # Caractéristiques du contrat chez FTMO, relevées à l'étape 0.
+    taille_contrat: 100.0
+    volume_min: 0.01
+    volume_pas: 0.01
+    historique_m1_ftmo: 2004-09-10
+    # Mesuré le 20/08/2026 : borne resserrée de deux ans. Au 10/04/2017,
+    # 0,1 % de clôtures identiques à IC Markets sur 1 355 bougies communes.
+    # La borne précédente (2019-06) reposait sur deux artefacts, corrigés dans
+    # scripts/03_date_bascule.py : la sonde tombait un week-end certaines
+    # années, et surtout IC Markets ne sert que des bougies HORAIRES sur l'or
+    # avant avril 2017 (23 par jour au lieu de 1 370). Comparer une clôture H1
+    # à une clôture M1 les fait diverger même à source identique, ce qui
+    # simulait des cotations propres là où rien n'était mesuré.
+    # AVANT avril 2017 : non vérifiable, IC Markets n'ayant pas de M1 sur l'or.
+    # Ce n'est pas une preuve de données communes, c'est une absence de mesure.
+    cotations_propres_depuis: 2017-04-01
+
+  BTCUSD:
+    classe: crypto
+    recherche: [BTCUSD, BTCUSDT, BITCOIN]
+    ftmo: "BTCUSD"
+    icmarket: "BTCUSD"
+    # Historique annoncé depuis 2011, ce qui est impossible pour un CFD de
+    # courtier : les premières années sont nécessairement reconstituées.
+    # Valeur du point, mesurée à l'étape 0 (10^-décimales).
+    point: 0.01
+    # Valeur d'un pip, convention d'affichage de l'instrument.
+    pip: 1.0
+    # Caractéristiques du contrat chez FTMO, relevées à l'étape 0.
+    taille_contrat: 1.0
+    volume_min: 0.01
+    volume_pas: 0.01
+    historique_m1_ftmo: 2011-03-24
+    # Borne SÛRE : au 10/06/2021, 0,0 % de clôtures identiques à IC Markets.
+    # Entre 2019 et 2020, l'identité était de 93 à 98 % : source amont partagée
+    # avec écarts mineurs, donc PAS des cotations indépendantes.
+    cotations_propres_depuis: 2021-06-01
+
+# Unités de temps utilisées dans le projet.
+# Seule la plus fine est téléchargée ; les autres sont recalculées.
+timeframes:
+  collectee: M1
+  derivees: [M5, M15, H1, H4, D1]
+
+# Fuseau horaire des serveurs MT5, mesuré à l'étape 0 chez les deux courtiers.
+# Tout est normalisé en UTC à l'ingestion (étape 2).
+serveurs:
+  decalage_utc_heures: 3

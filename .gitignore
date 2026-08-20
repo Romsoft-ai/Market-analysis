@@ -1,0 +1,40 @@
+# Secrets — ne JAMAIS versionner
+.env
+.env.local
+*.key
+*.pem
+
+# Environnement Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Données — trop volumineuses pour git
+data/raw/*
+data/processed/*
+data/backtests/*
+!data/backtests/.gitkeep
+!data/**/.gitkeep
+*.parquet
+*.csv
+*.feather
+
+# Sorties et journaux
+docs/**/pdf/
+logs/
+*.log
+reports/
+
+# Système / éditeurs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Fiche de contexte personnelle : elle ne sert qu'aux sessions locales et n'a
+# rien à faire dans un dépôt public. Retirer cette ligne pour la publier.
+contexte/moi.md
