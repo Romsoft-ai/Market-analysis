@@ -20,8 +20,11 @@ import pytest
 from marketlab.strategies.base import Sens, Signal
 from marketlab.strategies.confluence import (
     ConfluenceRsiMacdEma,
+    ConfluenceSessionR5,
+    ConfluenceZero,
     ConfluenceZeroSession,
     ConfluenceZeroSessionR5,
+    FiltreSession,
 )
 
 
@@ -228,3 +231,71 @@ def test_b1v4_est_bien_enregistree_et_conserve_les_filtres():
 
     assert STRATEGIES["B1v4"] is ConfluenceZeroSessionR5
     assert issubclass(ConfluenceZeroSessionR5, ConfluenceZeroSession)
+
+
+# --------------------------------------------------------------------------
+# B1v5 : retrait de la ligne zéro
+# --------------------------------------------------------------------------
+
+
+def test_b1v5_ne_porte_pas_la_regle_de_la_ligne_zero():
+    """B1v5 retire une règle : elle ne doit pas hériter de celle qui la porte.
+
+    Ce contrôle n'est pas cosmétique. La vérification des trades décide des
+    contrôles à appliquer par héritage : si B1v5 héritait de B1v2, elle se verrait
+    reprocher une condition qu'elle ne s'impose pas, et chaque trade serait
+    déclaré non conforme.
+    """
+    assert not issubclass(ConfluenceSessionR5, ConfluenceZero)
+    assert issubclass(ConfluenceSessionR5, FiltreSession)
+    assert issubclass(ConfluenceZeroSessionR5, ConfluenceZero)
+
+
+def test_b1v5_accepte_les_croisements_des_deux_cotes_de_zero():
+    """L'inverse de B1v4, qui n'en retient qu'un côté."""
+    donnees = marche_aleatoire()
+    signaux = collecter(ConfluenceSessionR5(), donnees)
+    assert signaux, "série de test sans signal : le test ne prouverait rien"
+
+    cotes = {float(bougie["macd"]) < 0 for bougie, _ in signaux}
+    assert cotes == {True, False}, "B1v5 devrait produire des signaux des deux côtés"
+
+
+def test_tout_signal_de_b1v4_est_aussi_un_signal_de_b1v5():
+    """Retirer une condition ne peut qu'ajouter des signaux, jamais en retirer.
+
+    C'est l'invariant qui rend la comparaison interprétable : si B1v5 manquait un
+    trade que B1v4 prend, l'écart de résultat ne serait plus attribuable au seul
+    retrait de la règle.
+    """
+    donnees = marche_aleatoire()
+    v4 = {bougie.name for bougie, _ in collecter(ConfluenceZeroSessionR5(), donnees)}
+    v5 = {bougie.name for bougie, _ in collecter(ConfluenceSessionR5(), donnees)}
+
+    assert v4, "série de test sans signal B1v4"
+    assert v4 <= v5, f"{len(v4 - v5)} signaux de B1v4 absents de B1v5"
+    assert len(v5) > len(v4), "B1v5 devrait produire strictement plus de signaux"
+
+
+def test_b1v5_filtre_toujours_par_session():
+    """Le retrait porte sur la ligne zéro, pas sur l'horaire."""
+    donnees = marche_aleatoire()
+    for bougie, _ in collecter(ConfluenceSessionR5(), donnees):
+        assert bool(bougie["en_session"])
+
+
+def test_b1v5_vise_cinq_fois_le_risque():
+    assert ConfluenceSessionR5().ratio_objectif == 5.0
+    assert ConfluenceSessionR5().sessions == ("londres", "new_york")
+
+
+def test_le_filtre_de_session_agit_pareil_dans_les_deux_montages():
+    """La brique de session doit se comporter identiquement où qu'elle soit posée.
+
+    B1v3 la combine avec la ligne zéro, B1v5 sans. Si la colonne « en_session »
+    différait entre les deux, les résultats ne seraient plus comparables.
+    """
+    donnees = marche_aleatoire()
+    a = ConfluenceZeroSession().preparer(donnees)["en_session"]
+    b = ConfluenceSessionR5().preparer(donnees)["en_session"]
+    assert a.equals(b)

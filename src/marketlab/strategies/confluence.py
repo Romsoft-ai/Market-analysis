@@ -1,8 +1,17 @@
 """Stratégies de confluence RSI + MACD + EMA.
 
-Deux versions coexistent volontairement dans ce fichier. La seconde corrige une
-règle oubliée lors de la première formalisation, et les deux sont conservées pour
-que la comparaison reste possible et honnête.
+Quatre versions coexistent volontairement dans ce fichier. Aucune ne remplace la
+précédente : chacune ajoute UNE modification et une seule, et toutes sont
+conservées pour que la comparaison reste possible et honnête. Écraser une version
+rendrait invérifiable ce que chaque ajout a réellement changé.
+
+Chaque version porte son STATUT, qui commande la façon de lire son résultat :
+
+* **correction de fidélité** : la règle existait déjà dans la méthode appliquée à
+  la main, ou la simulation exécutait des trades impossibles. On corrige une
+  transcription, le résultat garde sa valeur de prédiction ;
+* **exploration** : la question naît APRÈS lecture des résultats précédents. Le
+  résultat vaut alors comme un essai parmi d'autres, pas comme une confirmation.
 
 Principe commun : trois informations indépendantes doivent s'aligner.
 
@@ -85,6 +94,35 @@ Repère utile pour lire le résultat : sur une marche au hasard sans dérive, la
 probabilité d'atteindre 5 R avant 1 R vaut exactement 1/6, soit 16,7 %. Un taux
 de réussite nettement supérieur signale un avantage réel ; un taux inférieur
 signale que les frais et le comportement du marché jouent contre.
+
+--------------------------------------------------------------------------
+B1v5, ajout daté du 20 août 2026
+--------------------------------------------------------------------------
+
+B1v4 dont on RETIRE la condition de la ligne zéro. Un croisement du MACD est
+accepté des deux côtés de zéro, les autres conditions restant inchangées :
+tendance, fenêtre RSI, session de Londres ou de New York, objectif à 5 R.
+
+C'est la première version qui retire une règle au lieu d'en ajouter une. Elle
+n'est donc pas un maillon de plus dans la chaîne : elle se rattache directement à
+B1, à laquelle elle ajoute le filtre de session et l'objectif éloigné.
+
+Raison invoquée : sur des instruments qui se déplacent vite, comme le US30 et
+l'or, le repli qui rendrait le MACD négatif n'a pas toujours lieu. Le mouvement
+repart sans que le MACD repasse sous zéro, et le signal est refusé alors que les
+trois autres conditions sont réunies. La règle ferait donc manquer des mouvements
+valides plutôt que d'écarter des mouvements douteux.
+
+Statut : EXPLORATION. L'observation vient de la lecture des backtests, pas d'une
+règle oubliée ni d'une contrainte d'exécution. À la différence de B1v2 et B1v3,
+son résultat ne vaut donc pas comme prédiction vérifiée.
+
+À prévoir en lisant le résultat : retirer une condition ne peut qu'AUGMENTER le
+nombre de signaux, jamais le diminuer. Tout signal de B1v4 est aussi un signal de
+B1v5, et un test verrouille cet ordre d'inclusion. La question n'est pas de savoir
+si B1v5 prend plus de trades, c'est certain, mais si les trades ajoutés valent
+mieux que ceux que la règle écartait. C'est exactement la question posée sur les
+positions simultanées, et la réponse y avait été négative.
 
 --------------------------------------------------------------------------
 
@@ -298,22 +336,22 @@ class ConfluenceZero(ConfluenceRsiMacdEma):
         return f"{super()._raison(valeur_rsi)} + croisement du bon côté de zéro"
 
 
-class ConfluenceZeroSession(ConfluenceZero):
-    """B1v3 : B1v2, restreinte aux sessions de Londres et de New York.
+class FiltreSession:
+    """Brique réutilisable : restreint une stratégie aux sessions ouvertes.
 
-    Ajout du 20 août 2026. Ce n'est PAS un ajustement destiné à améliorer un
-    résultat : c'est une correction de FIDÉLITÉ. Le backtest prenait des positions
-    à deux heures du matin, moment où l'opérateur dort et ne passerait aucun ordre.
-    Un test qui exécute des trades impossibles ne mesure pas la stratégie étudiée,
-    mais celle d'un automate sans contrainte humaine.
+    Pourquoi une brique séparée plutôt qu'une classe de plus dans la chaîne.
+    B1v3 combine le filtre horaire avec la règle de la ligne zéro, mais B1v5
+    combine ce même filtre horaire SANS elle. Une hiérarchie linéaire ne peut pas
+    exprimer les deux : il faudrait recopier le filtre, et deux copies finissent
+    toujours par diverger.
 
     Les sessions sont évaluées en heure LOCALE de chaque place, après conversion
-    des horodatages serveur en UTC réel. Un filtre appliqué à l'heure serveur
-    serait décalé d'une heure la moitié de l'année.
-    """
+    des horodatages serveur en UTC réel. Un filtre appliqué directement à l'heure
+    serveur serait décalé d'une heure la moitié de l'année.
 
-    nom = "B1v3 — B1v2 restreinte aux sessions Londres et New York"
-    code = "B1v3"
+    Cette brique n'est pas une stratégie : elle se combine toujours à l'une
+    d'elles, et délègue à `super()` tout ce qui ne concerne pas l'horaire.
+    """
 
     #: Sessions autorisées. Modifiables à la construction pour tester d'autres
     #: fenêtres sans toucher au code.
@@ -344,6 +382,20 @@ class ConfluenceZeroSession(ConfluenceZero):
         return f"{super()._raison(valeur_rsi)} + session {' ou '.join(self.sessions)}"
 
 
+class ConfluenceZeroSession(FiltreSession, ConfluenceZero):
+    """B1v3 : B1v2, restreinte aux sessions de Londres et de New York.
+
+    Ajout du 20 août 2026. Ce n'est PAS un ajustement destiné à améliorer un
+    résultat : c'est une correction de FIDÉLITÉ. Le backtest prenait des positions
+    à deux heures du matin, moment où l'opérateur dort et ne passerait aucun ordre.
+    Un test qui exécute des trades impossibles ne mesure pas la stratégie étudiée,
+    mais celle d'un automate sans contrainte humaine.
+    """
+
+    nom = "B1v3 — B1v2 restreinte aux sessions Londres et New York"
+    code = "B1v3"
+
+
 class ConfluenceZeroSessionR5(ConfluenceZeroSession):
     """B1v4 : B1v3 dont l'objectif passe de 3 R à 5 R.
 
@@ -362,10 +414,35 @@ class ConfluenceZeroSessionR5(ConfluenceZeroSession):
         super().__init__(*args, ratio_objectif=ratio_objectif, **kwargs)
 
 
+class ConfluenceSessionR5(FiltreSession, ConfluenceRsiMacdEma):
+    """B1v5 : B1v4 SANS la condition de la ligne zéro.
+
+    Les trois conditions d'origine, le filtre de session et l'objectif à 5 R,
+    mais le croisement du MACD est accepté des DEUX côtés de zéro.
+
+    Ce que ça change en pratique. B1v2 n'achetait que la reprise après un repli,
+    donc elle attendait que le MACD soit repassé sous zéro avant de valider un
+    croisement haussier. Sur un instrument qui se déplace vite, ce recul n'a pas
+    toujours lieu : le mouvement repart sans jamais rendre le MACD négatif, et le
+    signal est refusé alors que les trois autres conditions sont réunies.
+
+    Noter que B1v5 n'est PAS un maillon de plus dans la chaîne : elle retire ce
+    que B1v2 avait ajouté. C'est pourquoi elle hérite directement de B1 et non de
+    B1v2, et pourquoi le filtre de session a dû devenir une brique à part.
+    """
+
+    nom = "B1v5 — B1 + sessions + objectif 5 R, sans la ligne zéro"
+    code = "B1v5"
+
+    def __init__(self, *args, ratio_objectif: float = 5.0, **kwargs) -> None:
+        super().__init__(*args, ratio_objectif=ratio_objectif, **kwargs)
+
+
 #: Stratégies disponibles, par code, pour les scripts et l'interface.
 STRATEGIES = {
     ConfluenceRsiMacdEma.code: ConfluenceRsiMacdEma,
     ConfluenceZero.code: ConfluenceZero,
     ConfluenceZeroSession.code: ConfluenceZeroSession,
     ConfluenceZeroSessionR5.code: ConfluenceZeroSessionR5,
+    ConfluenceSessionR5.code: ConfluenceSessionR5,
 }

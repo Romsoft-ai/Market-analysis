@@ -25,14 +25,18 @@ from marketlab.backtest.verification import verifier_lot
 from marketlab.data.historique import obtenir
 from marketlab.strategies.confluence import STRATEGIES
 
+#: Libellés des contrôles, par NATURE et non par rang. Les contrôles
+#: conditionnels changent de position d'une stratégie à l'autre : B1v3 porte la
+#: ligne zéro et la session, B1v5 la session seule. Un tableau indexé par rang
+#: afficherait alors « ligne zéro » devant le résultat du contrôle horaire.
 LIBELLES = {
-    "c1": "Tendance (EMA)",
-    "c2": "Croisement MACD",
-    "c3": "Fenêtre RSI",
-    "c4": "Niveau du stop",
-    "c5": "Entrée en N+1",
-    "c6": "Côté de la ligne zéro",
-    "c7": "Session ouverte",
+    "tendance": "Tendance (EMA)",
+    "croisement": "Croisement MACD",
+    "rsi": "Fenêtre RSI",
+    "stop": "Niveau du stop",
+    "entree": "Entrée en N+1",
+    "ligne_zero": "Côté de la ligne zéro",
+    "session": "Session ouverte",
 }
 
 
@@ -87,6 +91,12 @@ def main() -> int:
 
     print("  RÉSULTAT PAR CONDITION")
     print("  " + "-" * 46)
+    inconnues = [
+        c for c in rapport.columns
+        if c not in LIBELLES and c not in {"date_entree", "sens", "tout_valide", "manquement"}
+    ]
+    if inconnues:
+        print(f"  [!] contrôles sans libellé connu : {', '.join(inconnues)}")
     for colonne, libelle in LIBELLES.items():
         if colonne not in rapport.columns:
             continue

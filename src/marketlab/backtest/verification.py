@@ -25,7 +25,7 @@ import pandas as pd
 from marketlab.strategies.confluence import (
     STRATEGIES,
     ConfluenceZero,
-    ConfluenceZeroSession,
+    FiltreSession,
 )
 
 # Tolérance de comparaison des prix. Les flottants issus d'agrégations ne sont
@@ -64,8 +64,16 @@ def decimales(parametres: dict[str, Any]) -> int:
 
 @dataclass
 class Controle:
-    """Une condition d'entrée, avec ce qui était attendu et ce qui est constaté."""
+    """Une condition d'entrée, avec ce qui était attendu et ce qui est constaté.
 
+    `cle` identifie la NATURE du contrôle, indépendamment de sa position dans la
+    liste. Les contrôles conditionnels font varier cette position d'une stratégie
+    à l'autre : nommer les colonnes par rang ferait afficher le libellé d'une
+    règle à la place d'une autre, et un rapport de conformité qui désigne la
+    mauvaise règle est pire qu'un rapport absent.
+    """
+
+    cle: str
     condition: str
     attendu: str
     constate: str
@@ -107,30 +115,35 @@ def verifier(
 
     controles = [
         Controle(
+            cle="tendance",
             condition="Tendance : clôture du bon côté de l'EMA",
             attendu="clôture > EMA" if achat else "clôture < EMA",
             constate=f"{cloture:.{d}f} vs {valeur_ema:.{d}f}",
             valide=(cloture > valeur_ema) if achat else (cloture < valeur_ema),
         ),
         Controle(
+            cle="croisement",
             condition="Déclencheur : croisement du MACD",
             attendu="vers le haut" if achat else "vers le bas",
             constate=f"MACD {signal['macd']:.6f} / signal {signal['macd_signal']:.6f}",
             valide=bool(signal["croise_haut"] if achat else signal["croise_bas"]),
         ),
         Controle(
+            cle="rsi",
             condition="Momentum : RSI dans la fenêtre",
             attendu=f"{plancher:.0f} < RSI < {plafond:.0f}",
             constate=f"{valeur_rsi:.1f}",
             valide=plancher < valeur_rsi < plafond,
         ),
         Controle(
+            cle="stop",
             condition=f"Stop : extrême des {nb_bougies} dernières bougies",
             attendu=f"{niveau_stop:.{d}f}",
             constate=f"{float(trade['stop_initial']):.{d}f}",
             valide=abs(niveau_stop - float(trade["stop_initial"])) < _TOLERANCE,
         ),
         Controle(
+            cle="entree",
             condition="Entrée : à l'ouverture de la bougie suivante",
             attendu="signal en N, entrée en N+1",
             constate=(
@@ -149,21 +162,26 @@ def verifier(
         valeur_macd = float(signal["macd"])
         controles.append(
             Controle(
-                condition="Position : croisement du bon côté de zéro",
+                cle="ligne_zero",
+            condition="Position : croisement du bon côté de zéro",
                 attendu="MACD < 0" if achat else "MACD > 0",
                 constate=f"{valeur_macd:+.6f}",
                 valide=(valeur_macd < 0) if achat else (valeur_macd > 0),
             )
         )
 
+    # Le contrôle horaire se rattache à la BRIQUE de session, pas à une classe
+    # particulière : B1v3 la combine avec la ligne zéro, B1v5 sans. Viser
+    # ConfluenceZeroSession ferait sauter le contrôle sur B1v5 en silence.
     if (
         classe is not None
-        and issubclass(classe, ConfluenceZeroSession)
+        and issubclass(classe, FiltreSession)
         and "en_session" in signal
     ):
         controles.append(
             Controle(
-                condition="Horaire : session de marché ouverte",
+                cle="session",
+            condition="Horaire : session de marché ouverte",
                 attendu="Londres ou New York",
                 constate="dans la session" if bool(signal["en_session"]) else "hors session",
                 valide=bool(signal["en_session"]),
@@ -199,8 +217,8 @@ def verifier_lot(
             "tout_valide": not echecs,
             "manquement": "" if not echecs else echecs[0].condition,
         }
-        for numero, controle in enumerate(controles, start=1):
-            ligne[f"c{numero}"] = controle.valide
+        for controle in controles:
+            ligne[controle.cle] = controle.valide
         lignes.append(ligne)
 
     return pd.DataFrame(lignes)
