@@ -77,16 +77,25 @@ def _require(var: str) -> str:
     return value
 
 
+def courtier_par_defaut() -> str:
+    """Nom du courtier utilisé quand aucun n'est précisé (DEFAULT_BROKER du .env).
+
+    Les scripts et l'interface passent par ici plutôt que d'écrire un nom en dur :
+    changer de courtier principal se fait alors dans .env, et nulle part ailleurs.
+    """
+    return os.getenv("DEFAULT_BROKER", "demo").strip().lower()
+
+
 def get_broker(name: str | None = None) -> BrokerConfig:
     """Retourne la configuration d'un courtier.
 
     Args:
-        name: ``"ftmo"`` ou ``"demo"``. Si omis, on prend DEFAULT_BROKER du .env.
+        name: ``"icmarket"`` ou ``"ftmo"``. Si omis, on prend DEFAULT_BROKER du .env.
 
     Le préfixe des variables se déduit du nom : ``ftmo`` -> ``FTMO_LOGIN``, etc.
     C'est ce qui permet de changer de compte sans toucher une ligne de code.
     """
-    name = (name or os.getenv("DEFAULT_BROKER", "demo")).strip().lower()
+    name = (name or courtier_par_defaut()).strip().lower()
     prefix = name.upper()
 
     login_raw = _require(f"{prefix}_LOGIN")

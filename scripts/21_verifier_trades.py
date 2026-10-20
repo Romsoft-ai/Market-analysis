@@ -23,21 +23,7 @@ import pandas as pd
 from marketlab.backtest import journal
 from marketlab.backtest.verification import verifier_lot
 from marketlab.data.historique import obtenir
-from marketlab.strategies.confluence import STRATEGIES
-
-#: Libellés des contrôles, par NATURE et non par rang. Les contrôles
-#: conditionnels changent de position d'une stratégie à l'autre : B1v3 porte la
-#: ligne zéro et la session, B1v5 la session seule. Un tableau indexé par rang
-#: afficherait alors « ligne zéro » devant le résultat du contrôle horaire.
-LIBELLES = {
-    "tendance": "Tendance (EMA)",
-    "croisement": "Croisement MACD",
-    "rsi": "Fenêtre RSI",
-    "stop": "Niveau du stop",
-    "entree": "Entrée en N+1",
-    "ligne_zero": "Côté de la ligne zéro",
-    "session": "Session ouverte",
-}
+from marketlab.strategies.registre import depuis_journal
 
 
 def main() -> int:
@@ -61,6 +47,12 @@ def main() -> int:
         return 0
 
     parametres = experience.parametres
+    strategie = depuis_journal(parametres)
+    if strategie is None:
+        print(f"\n  La stratégie {parametres.get('strategie_classe', '?')} a été retirée")
+        print("  du catalogue : ses règles ne peuvent plus être rejouées.")
+        return 1
+
     print("\n  Reconstruction des bougies et des indicateurs...")
     donnees = obtenir(
         parametres["instrument"],
@@ -69,42 +61,24 @@ def main() -> int:
         pd.Timestamp(parametres["debut_reel"]).to_pydatetime(),
         pd.Timestamp(parametres["fin_reelle"]).to_pydatetime(),
     )
-    classe = STRATEGIES.get(str(parametres.get("strategie_code", "B1")), STRATEGIES["B1"])
-    strategie = classe(
-        periode_ema=int(parametres["strat_periode_ema"]),
-        macd_rapide=int(parametres["strat_macd_rapide"]),
-        macd_lente=int(parametres["strat_macd_lente"]),
-        macd_signal=int(parametres["strat_macd_signal"]),
-        periode_rsi=int(parametres["strat_periode_rsi"]),
-        rsi_plancher=float(parametres["strat_rsi_plancher"]),
-        rsi_plafond=float(parametres["strat_rsi_plafond"]),
-        bougies_stop=int(parametres["strat_bougies_stop"]),
-        ratio_objectif=float(parametres["strat_ratio_objectif"]),
-    )
     preparees = strategie.preparer(donnees)
 
     print("  Contrôle des conditions d'entrée...\n")
-    rapport = verifier_lot(preparees, trades, parametres)
+    rapport = verifier_lot(strategie, preparees, trades, parametres)
 
     conformes = int(rapport["tout_valide"].sum())
     part = conformes / len(rapport) * 100
 
+    # Les libellés viennent des contrôles eux-mêmes : chaque stratégie déclare
+    # les siens, ce script n'a donc aucune liste à tenir à jour.
     print("  RÉSULTAT PAR CONDITION")
-    print("  " + "-" * 46)
-    inconnues = [
-        c for c in rapport.columns
-        if c not in LIBELLES and c not in {"date_entree", "sens", "tout_valide", "manquement"}
-    ]
-    if inconnues:
-        print(f"  [!] contrôles sans libellé connu : {', '.join(inconnues)}")
-    for colonne, libelle in LIBELLES.items():
-        if colonne not in rapport.columns:
-            continue
-        reussites = int(rapport[colonne].sum())
+    print("  " + "-" * 62)
+    for colonne, libelle in rapport.attrs.get("libelles", {}).items():
+        reussites = int(rapport[colonne].fillna(False).sum())
         marque = "OK " if reussites == len(rapport) else "!! "
-        print(f"  {marque}{libelle:<24} {reussites:>6,} / {len(rapport):,}")
+        print(f"  {marque}{libelle:<46} {reussites:>6,} / {len(rapport):,}")
 
-    print("\n  " + "-" * 46)
+    print("\n  " + "-" * 62)
     print(f"  Trades entièrement conformes : {conformes:,} / {len(rapport):,} "
           f"({part:.2f} %)")
 

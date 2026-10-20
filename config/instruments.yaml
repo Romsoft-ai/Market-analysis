@@ -8,6 +8,10 @@
 #
 # Les dates ci-dessous ont été MESURÉES à l'étape 0, pas supposées.
 # Voir docs/etape0-conclusions.md.
+#
+# Contrats IC Markets relevés le 20/10/2026 (scripts/04_telecharger_historique.py) :
+# point, taille de contrat, volume minimal et pas sont IDENTIQUES à FTMO sur les
+# quatre instruments, sauf le volume d'US30 (champs *_icmarket ci-dessous).
 # ---------------------------------------------------------------------------
 
 instruments:
@@ -33,8 +37,10 @@ instruments:
     # 0,0 et 0,1 % jusqu'en 2026. Aucune bascule à chercher : elle précède le
     # début de l'historique, donc les 7,5 ans disponibles sont tous exploitables.
     cotations_propres_depuis: 2019-02-08
-    # IC Markets impose 0.1 lot minimum sur cet instrument (0.01 chez FTMO).
+    # IC Markets impose 0.1 lot minimum sur cet instrument (0.01 chez FTMO),
+    # par pas de 0.1. Relevé à nouveau le 20/10/2026.
     volume_min_icmarket: 0.1
+    volume_pas_icmarket: 0.1
 
   GBPUSD:
     classe: forex

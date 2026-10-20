@@ -31,10 +31,11 @@ from datetime import UTC, datetime
 from marketlab.backtest import journal
 from marketlab.backtest.metriques import calculer, formater
 from marketlab.backtest.moteur import Backtest
-from marketlab.config import ConfigError, load_instruments
+from marketlab.config import ConfigError, courtier_par_defaut, load_instruments
 from marketlab.data.historique import obtenir, periode_fiable
 from marketlab.data.mt5_session import MT5Error
-from marketlab.strategies.confluence import STRATEGIES
+from marketlab.strategies.registre import obtenir as strategie_du_catalogue
+from marketlab.strategies.registre import strategies
 
 
 def date(texte: str) -> datetime:
@@ -43,14 +44,15 @@ def date(texte: str) -> datetime:
 
 def arguments() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
+    catalogue = strategies()
     p.add_argument(
         "--strategie",
-        choices=sorted(STRATEGIES),
-        default="B1v2",
-        help="B1 = trois conditions ; B1v2 = plus la ligne zéro du MACD",
+        choices=list(catalogue),
+        default="B1",
+        help=" ; ".join(f"{code} = {classe.nom}" for code, classe in catalogue.items()),
     )
     p.add_argument("--instrument", default="GBPUSD")
-    p.add_argument("--courtier", default="ftmo")
+    p.add_argument("--courtier", default=courtier_par_defaut(), help="DEFAULT_BROKER du .env")
     p.add_argument("--echelle", default="15min", help="échelle de décision")
     p.add_argument("--debut", type=date, default=date("2022-01-01"))
     p.add_argument("--fin", type=date, default=date("2025-12-31"))
@@ -122,7 +124,7 @@ def main() -> int:
     print(f"\n  Spread : {spread_points:.1f} points ({source})")
 
     # --- Simulation ----------------------------------------------------------
-    strategie = STRATEGIES[a.strategie]()
+    strategie = strategie_du_catalogue(a.strategie)()
     break_even = 1.0 if a.avec_break_even else None
     # 0 en ligne de commande signifie « pas de limite » : plus lisible qu'une
     # chaîne à interpréter, et impossible à confondre avec un nombre valide.
@@ -141,7 +143,7 @@ def main() -> int:
     )
 
     print(f"\n  Stratégie : {strategie.nom}")
-    print(f"  Objectif  : {strategie.ratio_objectif:.0f} R")
+    print(f"  Réglages  : {strategie.parametres}")
     print(f"  Risque    : {a.risque * 100:.2f} % du capital par trade")
     print(f"  Break-even: {'à +1 R' if break_even else 'désactivé (objectif ou stop)'}")
     if positions_max is None:
@@ -175,7 +177,7 @@ def main() -> int:
         "strategie": strategie.nom,
         "strategie_code": strategie.code,
         "strategie_classe": type(strategie).__name__,
-        **{f"strat_{cle}": valeur for cle, valeur in vars(strategie).items()},
+        **strategie.parametres_journal(),
         "point": point,
         "pip": float(conf["pip"]),
         "taille_contrat": float(conf["taille_contrat"]),

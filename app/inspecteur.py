@@ -20,7 +20,7 @@ from plotly.subplots import make_subplots
 from marketlab.backtest import journal
 from marketlab.backtest.verification import bougie_de_signal, decimales, verifier
 from marketlab.data.historique import obtenir
-from marketlab.strategies.confluence import STRATEGIES
+from marketlab.strategies.registre import depuis_journal
 
 st.set_page_config(page_title="Inspecteur de trades", layout="wide")
 
@@ -52,18 +52,8 @@ def bougies_preparees(parametres: dict) -> pd.DataFrame:
         pd.Timestamp(parametres["debut_reel"]).to_pydatetime(),
         pd.Timestamp(parametres["fin_reelle"]).to_pydatetime(),
     )
-    classe = STRATEGIES.get(str(parametres.get("strategie_code", "B1")), STRATEGIES["B1"])
-    strategie = classe(
-        periode_ema=int(parametres.get("strat_periode_ema", 200)),
-        macd_rapide=int(parametres.get("strat_macd_rapide", 12)),
-        macd_lente=int(parametres.get("strat_macd_lente", 26)),
-        macd_signal=int(parametres.get("strat_macd_signal", 9)),
-        periode_rsi=int(parametres.get("strat_periode_rsi", 14)),
-        rsi_plancher=float(parametres.get("strat_rsi_plancher", 50.0)),
-        rsi_plafond=float(parametres.get("strat_rsi_plafond", 70.0)),
-        bougies_stop=int(parametres.get("strat_bougies_stop", 10)),
-        ratio_objectif=float(parametres.get("strat_ratio_objectif", 3.0)),
-    )
+    strategie = depuis_journal(parametres)
+    assert strategie is not None, "stratégie retirée : filtrée avant l'appel"
     return strategie.preparer(donnees)
 
 
@@ -485,6 +475,18 @@ with onglet_graphe:
 
     trade = selection.iloc[index]
 
+    # Une expérience dont la stratégie a été retirée du catalogue garde ses
+    # résultats, mais ses règles ne peuvent plus être rejouées : mieux vaut le
+    # dire que d'afficher des indicateurs calculés avec d'autres règles.
+    strategie = depuis_journal(parametres)
+    if strategie is None:
+        st.warning(
+            f"La stratégie **{parametres.get('strategie_code', '?')}** de cette "
+            "expérience a été retirée du catalogue. Ses résultats restent "
+            "consultables (liste des trades, capital), mais ses trades ne "
+            "peuvent plus être rejoués sur le graphique."
+        )
+
     with gauche:
         resultat = float(trade["resultat_r"])
         couleur = "🟢" if resultat > 0 else ("🔴" if resultat < 0 else "⚪")
@@ -494,42 +496,43 @@ with onglet_graphe:
             f"— sortie {trade['motif']} — {resultat:+.2f} R"
         )
 
-    with st.spinner("Reconstruction des indicateurs..."):
-        preparees = bougies_preparees(parametres)
+    if strategie is not None:
+        with st.spinner("Reconstruction des indicateurs..."):
+            preparees = bougies_preparees(parametres)
 
-    debut = pd.Timestamp(trade["date_entree"])
-    fin = pd.Timestamp(trade["date_sortie"])
-    positions = preparees.index
-    i_debut = max(0, positions.searchsorted(debut) - marge)
-    i_fin = min(len(positions), positions.searchsorted(fin) + marge)
-    fenetre = preparees.iloc[i_debut:i_fin]
+        debut = pd.Timestamp(trade["date_entree"])
+        fin = pd.Timestamp(trade["date_sortie"])
+        positions = preparees.index
+        i_debut = max(0, positions.searchsorted(debut) - marge)
+        i_fin = min(len(positions), positions.searchsorted(fin) + marge)
+        fenetre = preparees.iloc[i_debut:i_fin]
 
-    # --- Vérification des conditions ---------------------------------------
-    signal = bougie_de_signal(preparees, debut)
-    if signal is not None:
-        tableau = pd.DataFrame(
-            [
-                {
-                    "Condition": c.condition,
-                    "Attendu": c.attendu,
-                    "Constaté": c.constate,
-                    "OK": "✅" if c.valide else "❌",
-                }
-                for c in verifier(signal, trade, parametres)
-            ]
-        )
-
-        st.markdown("**Conditions d'entrée, rejouées sur la bougie de signal**")
-        st.dataframe(tableau, use_container_width=True, hide_index=True)
-
-        if "❌" in tableau["OK"].values:
-            st.error(
-                "Une condition n'est pas vérifiée. Soit le moteur diverge de la "
-                "stratégie, soit la règle affichée ici ne correspond pas à celle "
-                "qui a servi. À élucider avant d'exploiter ce backtest."
+        # --- Vérification des conditions -----------------------------------
+        signal = bougie_de_signal(preparees, debut)
+        if signal is not None:
+            tableau = pd.DataFrame(
+                [
+                    {
+                        "Condition": c.condition,
+                        "Attendu": c.attendu,
+                        "Constaté": c.constate,
+                        "OK": "✅" if c.valide else "❌",
+                    }
+                    for c in verifier(strategie, signal, trade, parametres)
+                ]
             )
 
-    st.plotly_chart(graphique(fenetre, trade, parametres), use_container_width=True)
+            st.markdown("**Conditions d'entrée, rejouées sur la bougie de signal**")
+            st.dataframe(tableau, use_container_width=True, hide_index=True)
+
+            if "❌" in tableau["OK"].values:
+                st.error(
+                    "Une condition n'est pas vérifiée. Soit le moteur diverge de la "
+                    "stratégie, soit la règle affichée ici ne correspond pas à celle "
+                    "qui a servi. À élucider avant d'exploiter ce backtest."
+                )
+
+        st.plotly_chart(graphique(fenetre, trade, parametres), use_container_width=True)
 
 
 # ---------------------------------------------------------------------------

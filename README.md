@@ -48,6 +48,20 @@ qu'on y arrive. C'est volontaire.
 
 ---
 
+## Ajouter une stratégie
+
+Une stratégie = un fichier dans `src/marketlab/strategies/catalogue/`. Rien d'autre
+n'est à modifier : le registre la découvre seule, et elle apparaît dans
+`scripts/20_backtest.py --strategie <code>` comme dans les tests de contrat.
+
+1. Copier `catalogue/b1_rsi_macd_ema.py` sous un nouveau nom.
+2. Ajuster la dataclass `Parametres` : ses valeurs par défaut sont les réglages de référence.
+3. Donner un `code` unique, puis écrire `preparer`, `evaluer` et `controles`.
+4. Lancer `pytest` : le contrat commun (pas de regard vers l'avenir, journal,
+   cohérence des contrôles) s'applique d'office à la nouvelle stratégie.
+
+---
+
 ## Règles de travail
 
 1. **Aucun secret dans le code.** Les identifiants vivent dans `.env`, qui n'est jamais versionné.

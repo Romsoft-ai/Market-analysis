@@ -18,9 +18,12 @@ Deux règles inscrites dans le code, pas seulement dans la documentation :
 
 from __future__ import annotations
 
+import ast
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, fields
 from enum import Enum
+from typing import Any, ClassVar
 
 import pandas as pd
 
@@ -95,11 +98,102 @@ class Signal:
         )
 
 
+@dataclass
+class Controle:
+    """Une règle d'entrée rejouée sur un trade : ce qui était attendu, ce qui est constaté.
+
+    `cle` identifie la NATURE du contrôle, indépendamment de sa position dans la
+    liste. Les contrôles varient d'une stratégie à l'autre : nommer les colonnes
+    par rang ferait afficher le libellé d'une règle à la place d'une autre, et un
+    rapport de conformité qui désigne la mauvaise règle est pire qu'un rapport
+    absent.
+    """
+
+    cle: str
+    condition: str
+    attendu: str
+    constate: str
+    valide: bool
+
+
+@dataclass(frozen=True)
+class SansParametre:
+    """Jeu de paramètres vide, pour une stratégie qui n'en a aucun."""
+
+
+#: Préfixe des paramètres de stratégie dans le journal d'expériences.
+PREFIXE_JOURNAL = "strat_"
+
+
 class Strategie(ABC):
-    """Contrat que toute stratégie du projet doit respecter."""
+    """Contrat que toute stratégie du projet doit respecter.
+
+    Une stratégie concrète vit dans son propre fichier du dossier `catalogue/`,
+    avec la classe de ses paramètres. Le registre la découvre seule : l'ajouter
+    au projet revient à créer ce fichier, sans rien modifier ailleurs.
+    """
+
+    #: Identifiant court et unique (« B1 », « B2 »...), utilisé par les scripts,
+    #: l'interface et le journal.
+    code: ClassVar[str] = ""
 
     #: Nom lisible, utilisé dans les rapports et les comparaisons.
-    nom: str = "sans nom"
+    nom: ClassVar[str] = "sans nom"
+
+    #: Classe des paramètres : une dataclass figée, dont les valeurs par défaut
+    #: SONT les réglages de référence de la stratégie.
+    Parametres: ClassVar[type] = SansParametre
+
+    #: Noms de classes sous lesquels cette stratégie a été enregistrée par le
+    #: passé. Permet de rejouer d'anciennes expériences après un renommage.
+    anciennes_classes: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(self, parametres: Any = None) -> None:
+        self.parametres = parametres if parametres is not None else self.Parametres()
+        if not isinstance(self.parametres, self.Parametres):
+            raise TypeError(
+                f"{type(self).__name__} attend des {self.Parametres.__name__}, "
+                f"pas des {type(self.parametres).__name__}"
+            )
+
+    # ------------------------------------------------------------------
+    # Journal : les paramètres sortent et reviennent sans perte
+    # ------------------------------------------------------------------
+
+    def parametres_journal(self) -> dict[str, Any]:
+        """Paramètres à consigner avec une expérience, préfixés pour le journal."""
+        return {f"{PREFIXE_JOURNAL}{cle}": v for cle, v in asdict(self.parametres).items()}
+
+    @classmethod
+    def depuis_journal(cls, enregistres: Mapping[str, Any]) -> Strategie:
+        """Reconstruit la stratégie avec les paramètres d'une expérience passée.
+
+        Chaque valeur est ramenée au type de la valeur par défaut : le journal
+        relit des JSON et des parquet, où un entier peut revenir en flottant et un
+        tuple en liste. Un paramètre absent du journal garde sa valeur par défaut,
+        ce qui permet de rejouer une expérience antérieure à son ajout.
+        """
+        valeurs = {}
+        for champ in fields(cls.Parametres):
+            cle = f"{PREFIXE_JOURNAL}{champ.name}"
+            if cle in enregistres and enregistres[cle] is not None:
+                defaut = getattr(cls.Parametres(), champ.name)
+                valeurs[champ.name] = _au_type_de(defaut, enregistres[cle])
+        return cls(cls.Parametres(**valeurs))
+
+    # ------------------------------------------------------------------
+    # Vérification : chaque stratégie sait rejouer ses propres règles
+    # ------------------------------------------------------------------
+
+    def controles(
+        self, bougie: pd.Series, trade: pd.Series, decimales: int
+    ) -> list[Controle]:
+        """Rejoue les règles d'entrée sur la bougie de signal d'un trade.
+
+        Par défaut aucune : une stratégie qui ne la redéfinit pas ne sera pas
+        déclarée conforme, elle sera déclarée non vérifiée.
+        """
+        return []
 
     @property
     @abstractmethod
@@ -130,6 +224,22 @@ class Strategie(ABC):
         accessible. Retourne None quand aucune condition n'est réunie — ce qui
         sera le cas la grande majorité du temps.
         """
+
+
+def _au_type_de(defaut: Any, valeur: Any) -> Any:
+    """Convertit une valeur relue du journal vers le type de `defaut`."""
+    if isinstance(defaut, tuple):
+        if isinstance(valeur, str):
+            # Un tuple passé par une colonne texte revient sous sa forme affichée.
+            valeur = ast.literal_eval(valeur)
+        return tuple(valeur)
+    if isinstance(defaut, bool):
+        return bool(valeur)
+    if isinstance(defaut, int):
+        return int(float(valeur))
+    if isinstance(defaut, float):
+        return float(valeur)
+    return valeur
 
 
 def verifier_bougies(bougies: pd.DataFrame) -> None:
