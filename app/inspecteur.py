@@ -72,15 +72,35 @@ def trades_de(identifiant: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+#: Courbes tracées sur le prix, quand la stratégie les calcule : (colonne,
+#: libellé, couleur, style de trait). Le graphique s'adapte ainsi à chaque
+#: stratégie sans connaître ses règles, il regarde seulement ce qu'elle a produit.
+_SUR_LE_PRIX = (
+    ("ema", "EMA", BLEU, "solid"),
+    ("bb_haute", "Bollinger haute", GRIS, "dot"),
+    ("bb_mediane", "Bollinger médiane", GRIS, "dash"),
+    ("bb_basse", "Bollinger basse", GRIS, "dot"),
+    ("supertrend", "SuperTrend", ORANGE, "solid"),
+)
+
+
 def graphique(fenetre: pd.DataFrame, trade: pd.Series, parametres: dict) -> go.Figure:
-    """Chandeliers, EMA, MACD et RSI, avec la position tracée par-dessus."""
+    """Chandeliers et indicateurs de la stratégie, avec la position tracée par-dessus.
+
+    Les panneaux MACD et RSI n'apparaissent que si la stratégie les calcule : B2
+    n'a pas de RSI, B3 pas de MACD.
+    """
+    panneaux = ["Prix"] + [nom for col, nom in (("macd", "MACD"), ("rsi", "RSI"))
+                           if col in fenetre.columns]
+    rang = {nom: i + 1 for i, nom in enumerate(panneaux)}
+    hauteurs = [0.58] + [0.42 / (len(panneaux) - 1)] * (len(panneaux) - 1) if len(panneaux) > 1 else [1.0]
     figure = make_subplots(
-        rows=3,
+        rows=len(panneaux),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
-        row_heights=[0.58, 0.21, 0.21],
-        subplot_titles=("Prix", "MACD", "RSI"),
+        row_heights=hauteurs,
+        subplot_titles=panneaux,
     )
 
     # --- Prix -------------------------------------------------------------
@@ -98,16 +118,13 @@ def graphique(fenetre: pd.DataFrame, trade: pd.Series, parametres: dict) -> go.F
         row=1,
         col=1,
     )
-    figure.add_trace(
-        go.Scatter(
-            x=fenetre.index,
-            y=fenetre["ema"],
-            name=f"EMA {parametres.get('strat_periode_ema', 200)}",
-            line={"color": BLEU, "width": 1.6},
-        ),
-        row=1,
-        col=1,
-    )
+    for colonne, libelle, couleur, trait in _SUR_LE_PRIX:
+        if colonne in fenetre.columns:
+            figure.add_trace(
+                go.Scatter(x=fenetre.index, y=fenetre[colonne], name=libelle,
+                           line={"color": couleur, "width": 1.4, "dash": trait}),
+                row=1, col=1,
+            )
 
     # --- Niveaux de la position -------------------------------------------
     niveaux = [
@@ -115,6 +132,11 @@ def graphique(fenetre: pd.DataFrame, trade: pd.Series, parametres: dict) -> go.F
         (trade["stop_initial"], ROUGE, "Stop"),
         (trade["objectif"], VERT, "Objectif"),
     ]
+    # Un stop déplacé (stop suiveur, break-even) se montre à côté du stop
+    # initial : c'est lui qui a réellement fermé la position.
+    stop_final = trade.get("stop_final")
+    if stop_final is not None and not pd.isna(stop_final) and stop_final != trade["stop_initial"]:
+        niveaux.append((stop_final, ORANGE, "Stop final"))
     d = decimales(parametres)
     for valeur, couleur, etiquette in niveaux:
         figure.add_hline(
@@ -174,43 +196,53 @@ def graphique(fenetre: pd.DataFrame, trade: pd.Series, parametres: dict) -> go.F
         )
 
     # --- MACD --------------------------------------------------------------
-    couleurs = [VERT if v >= 0 else ROUGE for v in fenetre["macd"] - fenetre["macd_signal"]]
-    figure.add_trace(
-        go.Bar(
-            x=fenetre.index,
-            y=fenetre["macd"] - fenetre["macd_signal"],
-            marker_color=couleurs,
-            name="Histogramme",
-            opacity=0.45,
-        ),
-        row=2,
-        col=1,
-    )
-    figure.add_trace(
-        go.Scatter(x=fenetre.index, y=fenetre["macd"], name="MACD",
-                   line={"color": BLEU, "width": 1.4}),
-        row=2, col=1,
-    )
-    figure.add_trace(
-        go.Scatter(x=fenetre.index, y=fenetre["macd_signal"], name="Signal",
-                   line={"color": ORANGE, "width": 1.4}),
-        row=2, col=1,
-    )
-    figure.add_hline(y=0, line={"color": GRIS, "width": 0.8}, row=2, col=1)
+    if "MACD" in rang:
+        r = rang["MACD"]
+        couleurs = [VERT if v >= 0 else ROUGE for v in fenetre["macd"] - fenetre["macd_signal"]]
+        figure.add_trace(
+            go.Bar(
+                x=fenetre.index,
+                y=fenetre["macd"] - fenetre["macd_signal"],
+                marker_color=couleurs,
+                name="Histogramme",
+                opacity=0.45,
+            ),
+            row=r,
+            col=1,
+        )
+        figure.add_trace(
+            go.Scatter(x=fenetre.index, y=fenetre["macd"], name="MACD",
+                       line={"color": BLEU, "width": 1.4}),
+            row=r, col=1,
+        )
+        figure.add_trace(
+            go.Scatter(x=fenetre.index, y=fenetre["macd_signal"], name="Signal",
+                       line={"color": ORANGE, "width": 1.4}),
+            row=r, col=1,
+        )
+        figure.add_hline(y=0, line={"color": GRIS, "width": 0.8}, row=r, col=1)
 
     # --- RSI ---------------------------------------------------------------
-    figure.add_trace(
-        go.Scatter(x=fenetre.index, y=fenetre["rsi"], name="RSI",
-                   line={"color": "#7e3af2", "width": 1.6}),
-        row=3, col=1,
-    )
-    plancher = float(parametres.get("strat_rsi_plancher", 50.0))
-    plafond = float(parametres.get("strat_rsi_plafond", 70.0))
-    for niveau, couleur in ((plancher, VERT), (plafond, ROUGE), (100 - plafond, VERT),
-                            (100 - plancher, ROUGE)):
-        figure.add_hline(y=niveau, line={"color": couleur, "width": 0.9, "dash": "dot"},
-                         row=3, col=1)
-    figure.update_yaxes(range=[0, 100], row=3, col=1)
+    if "RSI" in rang:
+        r = rang["RSI"]
+        figure.add_trace(
+            go.Scatter(x=fenetre.index, y=fenetre["rsi"], name="RSI",
+                       line={"color": "#7e3af2", "width": 1.6}),
+            row=r, col=1,
+        )
+        # Les seuils dépendent de la stratégie : fenêtre 50-70 pour B1, seuil
+        # unique pour B3. On trace ceux que ses paramètres déclarent.
+        if "strat_rsi_plancher" in parametres:
+            plancher = float(parametres["strat_rsi_plancher"])
+            plafond = float(parametres.get("strat_rsi_plafond", 70.0))
+            seuils = ((plancher, VERT), (plafond, ROUGE), (100 - plafond, VERT),
+                      (100 - plancher, ROUGE))
+        else:
+            seuils = ((float(parametres.get("strat_rsi_seuil", 50.0)), GRIS),)
+        for niveau, couleur in seuils:
+            figure.add_hline(y=niveau, line={"color": couleur, "width": 0.9, "dash": "dot"},
+                             row=r, col=1)
+        figure.update_yaxes(range=[0, 100], row=r, col=1)
 
     figure.update_layout(
         height=820,
@@ -334,14 +366,20 @@ if trades.empty:
     st.stop()
 
 # --- Résumé ----------------------------------------------------------------
+# Toutes les stratégies ne visent pas un multiple fixe du risque : B2 vise une
+# bande de Bollinger. Afficher « 3 R » par défaut serait faux pour elle.
+_ratio = parametres.get("strat_ratio_objectif")
+objectif_lisible = (
+    f"{float(_ratio):.0f} R" if _ratio is not None and not pd.isna(_ratio) else "variable"
+)
+
 # Rappel de la période sur l'écran principal : le panneau latéral se replie, et
 # on inspecte souvent un trade sans l'avoir sous les yeux.
 st.markdown(
     f"**{parametres.get('instrument', '?')} {parametres.get('echelle', '')}** "
     f"chez {parametres.get('courtier', '?')} · données de "
     f"**{periode_lisible(parametres)}** · "
-    f"stratégie {parametres.get('strategie_code', '?')} "
-    f"à {float(parametres.get('strat_ratio_objectif', 3)):.0f} R"
+    f"stratégie {parametres.get('strategie_code', '?')}, objectif {objectif_lisible}"
     + marque_positions(parametres)
 )
 
@@ -351,7 +389,7 @@ colonnes[1].metric("Réussite", f"{(trades['resultat_r'] > 0).mean() * 100:.1f} 
 colonnes[2].metric("Total", f"{trades['resultat_r'].sum():.0f} R")
 colonnes[3].metric("Espérance", f"{trades['resultat_r'].mean():.3f} R")
 colonnes[4].metric("Spread", f"{float(parametres.get('spread_points', 0)):.1f} pts")
-colonnes[5].metric("Objectif", f"{float(parametres.get('strat_ratio_objectif', 3)):.0f} R")
+colonnes[5].metric("Objectif", objectif_lisible)
 
 # --- Ce que l'échantillon permet réellement d'affirmer -----------------------
 # Sans cette lecture, on conclurait d'une centaine de trades ce qu'ils ne
