@@ -27,7 +27,7 @@ import argparse
 
 from marketlab.brokers.base import Ordre, OrdreRefuse, PositionOuverte
 from marketlab.brokers.mt5 import MT5Broker
-from marketlab.config import ConfigError, courtier_par_defaut, get_broker
+from marketlab.config import ConfigError, courtier_par_defaut, get_broker, load_instruments
 from marketlab.data.mt5_session import MT5Error, reconnecter
 from marketlab.live.flux import FluxMT5
 from marketlab.live.journal import JournalMemoire
@@ -69,13 +69,16 @@ def main() -> int:
         with MT5Broker.connecter(a.courtier) as reel:
             broker = Observation(reel.api, a.courtier) if a.observation else reel
             flux = FluxMT5(broker.api, a.courtier)
-            reference = flux.spread_median(a.instrument)
+            # Même référence que le backtest : le spread réel mesuré à l'entrée.
+            # Celle des bougies M1 (le minimum de chaque minute) bloquerait tout.
+            conf = load_instruments()["instruments"][a.instrument]
+            reference = float(conf.get("spread_reel_points") or flux.spread_median(a.instrument))
             journal = JournalMemoire(afficher=True)
 
             print(f"\n  ROBOT  {strategie.nom}  ·  {a.instrument}  ·  {a.courtier}"
                   f"  ·  {'OBSERVATION (aucun ordre)' if a.observation else 'RÉEL'}")
             print(f"  Garde-fous : perte max {a.perte_max_jour:.1%} par jour, spread max "
-                  f"{a.spread_max:g} × {reference:.0f} pts (médiane des 30 000 dernières minutes)")
+                  f"{a.spread_max:g} × {reference:.0f} pts (spread réel mesuré à l'entrée)")
             print("  Ctrl+C pour arrêter.\n")
 
             robot = Robot(

@@ -37,6 +37,11 @@ instruments:
     # 0,0 et 0,1 % jusqu'en 2026. Aucune bascule à chercher : elle précède le
     # début de l'historique, donc les 7,5 ans disponibles sont tous exploitables.
     cotations_propres_depuis: 2019-02-08
+    # Spread payé au moment d'entrer, mesuré le 21/10/2026 par
+    # scripts/05_mesurer_spread.py : médiane à la clôture M15 en session sur
+    # 10 jours (70), sans majoration du compte. Remplace la médiane des bougies
+    # M1, qui ne retient que le spread minimal de chaque minute.
+    spread_reel_points: 70
     # IC Markets impose 0.1 lot minimum sur cet instrument (0.01 chez FTMO),
     # par pas de 0.1. Relevé à nouveau le 20/10/2026.
     volume_min_icmarket: 0.1
@@ -59,6 +64,10 @@ instruments:
     # Seul instrument où la bascule est mesurée avec précision : 100 % de
     # clôtures identiques au 10/03/2017, 0,6 % au 10/04/2017. Transition nette.
     cotations_propres_depuis: 2017-04-01
+    # Mesuré le 21/10/2026 : 2 points à la clôture M15 dans l'historique brut,
+    # plus 8 points de majoration du compte (compte « Standard »). Le backtest
+    # en payait 0,3 avant correction, soit 30 fois moins.
+    spread_reel_points: 10
 
   XAUUSD:
     classe: metal
@@ -85,6 +94,9 @@ instruments:
     # AVANT avril 2017 : non vérifiable, IC Markets n'ayant pas de M1 sur l'or.
     # Ce n'est pas une preuve de données communes, c'est une absence de mesure.
     cotations_propres_depuis: 2017-04-01
+    # Mesuré le 21/10/2026 : 7 points à la clôture M15 dans l'historique brut,
+    # plus 10 points de majoration du compte. Le backtest en payait 5.
+    spread_reel_points: 17
 
   BTCUSD:
     classe: crypto
@@ -106,6 +118,9 @@ instruments:
     # Entre 2019 et 2020, l'identité était de 93 à 98 % : source amont partagée
     # avec écarts mineurs, donc PAS des cotations indépendantes.
     cotations_propres_depuis: 2021-06-01
+    # Mesuré le 21/10/2026 : 500 points à la clôture M15, sans majoration. Le
+    # backtest en payait 951 : il surestimait le coût d'un facteur 2.
+    spread_reel_points: 500
 
 # Unités de temps utilisées dans le projet.
 # Seule la plus fine est téléchargée ; les autres sont recalculées.

@@ -113,10 +113,18 @@ def main() -> int:
     print("  (horodatages en heure serveur, décalée de 2 à 3 h par rapport à UTC)")
 
     # --- Spread mesuré, non supposé -----------------------------------------
+    # Le spread RÉEL, mesuré à la clôture M15 et majoration du compte comprise
+    # (scripts/05_mesurer_spread.py), passe avant celui des bougies : MetaTrader
+    # range dans les bougies le spread MINIMAL de chaque minute, ce qui faisait
+    # payer au backtest 0,3 point sur GBPUSD au lieu de 10.
     point = float(conf["point"])
-    if "spread" in bougies.columns:
-        spread_points = float(bougies["spread"].median())
-        source = "médiane mesurée sur la période"
+    spread_bougies = float(bougies["spread"].median()) if "spread" in bougies.columns else None
+    if conf.get("spread_reel_points") is not None:
+        spread_points = float(conf["spread_reel_points"])
+        source = "spread réel mesuré à l'entrée (instruments.yaml)"
+    elif spread_bougies is not None:
+        spread_points = spread_bougies
+        source = "médiane des bougies : SOUS-ESTIME le coût réel, mesurer le spread réel"
     else:
         spread_points = 3.0
         source = "valeur de repli, colonne absente"
@@ -188,6 +196,8 @@ def main() -> int:
         "volume_min": float(conf["volume_min"]),
         "volume_pas": float(conf["volume_pas"]),
         "spread_points": spread_points,
+        "spread_source": source,
+        "spread_bougies_points": spread_bougies,
         "spread_prix": spread,
         "capital_initial": a.capital,
         "risque_par_trade": a.risque,
