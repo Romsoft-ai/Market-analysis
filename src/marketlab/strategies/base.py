@@ -182,6 +182,23 @@ class Strategie(ABC):
         return cls(cls.Parametres(**valeurs))
 
     # ------------------------------------------------------------------
+    # Gestion de position : facultative
+    # ------------------------------------------------------------------
+
+    def ajuster_stop(self, sens: Sens, stop_actuel: float, bougie: pd.Series) -> float | None:
+        """Nouveau niveau de stop proposé à la clôture de `bougie`, ou None.
+
+        Appelée à chaque bougie clôturée tant qu'une position est ouverte, par le
+        moteur de backtest comme par le robot live : c'est ce qui garantit qu'un
+        stop suiveur se comporte de la même façon des deux côtés. `bougie` est une
+        ligne déjà préparée (indicateurs compris), jamais une bougie future.
+
+        La stratégie PROPOSE, elle ne décide pas : l'appelant n'accepte qu'un stop
+        qui se resserre. Par défaut, aucune proposition : le stop reste fixe.
+        """
+        return None
+
+    # ------------------------------------------------------------------
     # Vérification : chaque stratégie sait rejouer ses propres règles
     # ------------------------------------------------------------------
 

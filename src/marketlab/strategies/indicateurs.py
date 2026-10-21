@@ -2,7 +2,7 @@
 
 Pourquoi les écrire nous-mêmes plutôt qu'installer une bibliothèque :
 
-* ce sont **trois formules de quelques lignes** — la dépendance coûterait plus
+* ce sont **des formules de quelques lignes** — la dépendance coûterait plus
   que le code ;
 * la bibliothèque de référence du domaine, TA-Lib, repose sur du C et s'installe
   très mal sous Windows ;
@@ -138,3 +138,112 @@ def croisement_baissier(serie: pd.Series, reference: pd.Series) -> pd.Series:
     """Vrai à la bougie où `serie` passe en dessous de `reference`."""
     precedent = serie.shift(1) >= reference.shift(1)
     return precedent & (serie < reference)
+
+
+def atr(bougies: pd.DataFrame, periode: int = 14) -> pd.Series:
+    """ATR (Average True Range) : l'amplitude moyenne d'une bougie, écarts de nuit compris.
+
+    Le « vrai range » d'une bougie est le plus grand de trois écarts : haut moins
+    bas, et distance de chacun d'eux à la clôture précédente. Ce dernier terme
+    capte les écarts d'ouverture qu'un simple haut moins bas ignorerait.
+
+    Lissage de Wilder, comme le RSI et pour la même raison : c'est le calcul des
+    plateformes de trading. Les `periode - 1` premières valeurs sont absentes.
+    """
+    if periode < 1:
+        raise ValueError(f"La période doit être positive, reçu {periode}")
+    cloture_prec = bougies["close"].shift(1)
+    vrai_range = pd.concat(
+        [
+            bougies["high"] - bougies["low"],
+            (bougies["high"] - cloture_prec).abs(),
+            (bougies["low"] - cloture_prec).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return vrai_range.ewm(alpha=1 / periode, adjust=False, min_periods=periode).mean()
+
+
+def supertrend(bougies: pd.DataFrame, periode: int = 10, multiplicateur: float = 3.0) -> pd.DataFrame:
+    """SuperTrend : le sens de la tendance, et un stop qui suit la volatilité.
+
+    Deux bandes encadrent le milieu de la bougie à `multiplicateur` ATR. En
+    tendance haussière, la ligne est la bande BASSE, qui ne peut que monter ; la
+    tendance s'inverse quand une clôture passe sous elle. Symétrique en baisse.
+
+    Le calcul est RÉCURSIF : chaque bande dépend de sa valeur à la bougie
+    précédente (une bande basse ne redescend pas tant que la tendance tient). Il
+    ne se vectorise pas, d'où la boucle explicite. Chaque valeur ne dépend que du
+    passé : aucune anticipation possible.
+
+    Retourne deux colonnes :
+
+    * ``supertrend`` : le niveau de la ligne (bande basse en hausse, haute en baisse) ;
+    * ``tendance``   : +1 en tendance haussière, -1 en baissière.
+    """
+    hauts = bougies["high"].to_numpy(dtype="float64")
+    bas = bougies["low"].to_numpy(dtype="float64")
+    clotures = bougies["close"].to_numpy(dtype="float64")
+    amplitude = atr(bougies, periode).to_numpy()
+
+    milieu = (hauts + bas) / 2
+    haute_brute = milieu + multiplicateur * amplitude
+    basse_brute = milieu - multiplicateur * amplitude
+
+    n = len(bougies)
+    haute = np.full(n, np.nan)
+    basse = np.full(n, np.nan)
+    tendance = np.full(n, np.nan)
+    ligne = np.full(n, np.nan)
+
+    for i in range(n):
+        if np.isnan(amplitude[i]):
+            continue
+        if i == 0 or np.isnan(tendance[i - 1]):
+            # Première valeur calculable : on part en tendance haussière, la
+            # première inversion corrigera si besoin.
+            haute[i], basse[i], tendance[i] = haute_brute[i], basse_brute[i], 1.0
+        else:
+            # Une bande ne se desserre pas tant que la clôture précédente ne l'a
+            # pas franchie : c'est ce qui en fait un stop suiveur.
+            haute[i] = (
+                haute_brute[i]
+                if haute_brute[i] < haute[i - 1] or clotures[i - 1] > haute[i - 1]
+                else haute[i - 1]
+            )
+            basse[i] = (
+                basse_brute[i]
+                if basse_brute[i] > basse[i - 1] or clotures[i - 1] < basse[i - 1]
+                else basse[i - 1]
+            )
+            if tendance[i - 1] > 0:
+                tendance[i] = -1.0 if clotures[i] < basse[i] else 1.0
+            else:
+                tendance[i] = 1.0 if clotures[i] > haute[i] else -1.0
+        ligne[i] = basse[i] if tendance[i] > 0 else haute[i]
+
+    return pd.DataFrame({"supertrend": ligne, "tendance": tendance}, index=bougies.index)
+
+
+def bollinger(serie: pd.Series, periode: int = 20, ecarts_types: float = 2.0) -> pd.DataFrame:
+    """Bandes de Bollinger : une moyenne mobile et deux limites de volatilité.
+
+    Les bandes sont à `ecarts_types` écarts-types de la moyenne simple. L'écart-type
+    est celui de la POPULATION (ddof=0), comme dans la définition de Bollinger et
+    sur les plateformes de trading ; pandas utilise par défaut l'échantillon, ce
+    qui élargirait légèrement les bandes.
+
+    Retourne ``bb_mediane``, ``bb_haute`` et ``bb_basse``.
+    """
+    if periode < 2:
+        raise ValueError(f"La période doit valoir au moins 2, reçu {periode}")
+    mediane = serie.rolling(periode, min_periods=periode).mean()
+    ecart = serie.rolling(periode, min_periods=periode).std(ddof=0)
+    return pd.DataFrame(
+        {
+            "bb_mediane": mediane,
+            "bb_haute": mediane + ecarts_types * ecart,
+            "bb_basse": mediane - ecarts_types * ecart,
+        },
+        index=serie.index,
+    )

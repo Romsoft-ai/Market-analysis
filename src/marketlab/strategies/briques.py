@@ -29,7 +29,12 @@ def colonne_session(index_serveur: pd.DatetimeIndex, sessions: Sequence[str]) ->
     Pourquoi filtrer par session. Un backtest sans ce filtre prend des positions à
     deux heures du matin, moment où l'opérateur dort et ne passerait aucun ordre.
     Une simulation qui exécute des trades impossibles ne mesure pas la stratégie.
+
+    Une liste VIDE lève le filtre : toutes les bougies sont acceptées. Utile pour
+    un actif coté jour et nuit comme le Bitcoin, ou pour un robot sans opérateur.
     """
+    if not sessions:
+        return np.ones(len(index_serveur), dtype=bool)
     utc = serveur_vers_utc(index_serveur)
     return dans_sessions(utc, list(sessions)).to_numpy()
 

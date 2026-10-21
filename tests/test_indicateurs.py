@@ -16,17 +16,27 @@ import pytest
 
 from marketlab.strategies.base import Sens, Signal, SignalInvalide
 from marketlab.strategies.indicateurs import (
+    atr,
+    bollinger,
     croisement_baissier,
     croisement_haussier,
     ema,
     macd,
     plus_bas,
     rsi,
+    supertrend,
 )
 
 
 def serie(valeurs: list[float]) -> pd.Series:
     return pd.Series(valeurs, dtype="float64")
+
+
+def chandelles(clotures: list[float], amplitude: float = 1.0) -> pd.DataFrame:
+    """Bougies dont le haut et le bas sont à `amplitude` de part et d'autre de la clôture."""
+    c = serie(clotures)
+    return pd.DataFrame({"open": c.shift(1).fillna(c.iloc[0]), "high": c + amplitude,
+                         "low": c - amplitude, "close": c})
 
 
 # --------------------------------------------------------------------------
@@ -158,6 +168,92 @@ def test_plus_bas_glissant():
     assert np.isnan(resultat.iloc[1])
     assert resultat.iloc[2] == 3.0
     assert resultat.iloc[4] == 2.0
+
+
+# --------------------------------------------------------------------------
+# ATR
+# --------------------------------------------------------------------------
+
+
+def test_atr_d_un_prix_immobile_vaut_l_amplitude_des_bougies():
+    """Clôture constante, bougies de ±1 : chaque vrai range vaut 2."""
+    resultat = atr(chandelles([100.0] * 40, amplitude=1.0), periode=10)
+    assert resultat.iloc[:9].isna().all()
+    assert np.allclose(resultat.iloc[9:], 2.0)
+
+
+def test_atr_compte_l_ecart_d_ouverture():
+    """Un saut de 10 entre deux clôtures pèse dans le vrai range, pas seulement haut - bas."""
+    bougies = chandelles([100.0] * 20 + [110.0] * 20, amplitude=1.0)
+    vrai_range_du_saut = atr(bougies, periode=1).iloc[20]
+    assert vrai_range_du_saut == pytest.approx(11.0)
+
+
+# --------------------------------------------------------------------------
+# SuperTrend
+# --------------------------------------------------------------------------
+
+
+def test_supertrend_haussier_sous_le_prix_en_tendance_haussiere():
+    bougies = chandelles([100.0 + i for i in range(80)])
+    resultat = supertrend(bougies, periode=10, multiplicateur=3.0).dropna()
+    assert (resultat["tendance"] == 1.0).all()
+    assert (resultat["supertrend"] < bougies.loc[resultat.index, "close"]).all()
+
+
+def test_supertrend_la_ligne_ne_redescend_pas_en_tendance_haussiere():
+    """C'est ce qui en fait un stop suiveur : il monte ou reste, jamais il ne recule."""
+    generateur = np.random.default_rng(3)
+    bougies = chandelles(list(100 + np.cumsum(generateur.normal(0.2, 1.0, 400))))
+    resultat = supertrend(bougies).dropna()
+    meme_tendance = resultat["tendance"].eq(resultat["tendance"].shift(1))
+    haussier = resultat["tendance"] == 1.0
+    variation = resultat["supertrend"].diff()
+    assert (variation[meme_tendance & haussier] >= -1e-12).all()
+
+
+def test_supertrend_bascule_apres_un_retournement():
+    bougies = chandelles([100.0 + i for i in range(60)] + [160.0 - 2 * i for i in range(60)])
+    resultat = supertrend(bougies, periode=10, multiplicateur=3.0)
+    assert resultat["tendance"].iloc[55] == 1.0
+    assert resultat["tendance"].iloc[-1] == -1.0
+    assert resultat["supertrend"].iloc[-1] > bougies["close"].iloc[-1]
+
+
+def test_supertrend_ne_depend_que_du_passe():
+    """Le calcul récursif sur une série coupée donne les mêmes valeurs que sur la série entière."""
+    generateur = np.random.default_rng(5)
+    bougies = chandelles(list(100 + np.cumsum(generateur.normal(0, 1.0, 300))))
+    complet = supertrend(bougies)
+    coupe = supertrend(bougies.iloc[:200])
+    pd.testing.assert_frame_equal(complet.iloc[:200], coupe)
+
+
+# --------------------------------------------------------------------------
+# Bollinger
+# --------------------------------------------------------------------------
+
+
+def test_bollinger_serie_constante_bandes_confondues():
+    resultat = bollinger(serie([50.0] * 30), periode=20).dropna()
+    assert np.allclose(resultat["bb_mediane"], 50.0)
+    assert np.allclose(resultat["bb_haute"], 50.0)
+    assert np.allclose(resultat["bb_basse"], 50.0)
+
+
+def test_bollinger_ecart_type_de_population():
+    """Sur [1, 3] répété, l'écart-type de population vaut exactement 1."""
+    resultat = bollinger(serie([1.0, 3.0] * 10), periode=2, ecarts_types=2.0).dropna()
+    assert np.allclose(resultat["bb_mediane"], 2.0)
+    assert np.allclose(resultat["bb_haute"], 4.0)
+    assert np.allclose(resultat["bb_basse"], 0.0)
+
+
+def test_bollinger_symetrique_autour_de_la_moyenne():
+    generateur = np.random.default_rng(9)
+    resultat = bollinger(serie(list(100 + np.cumsum(generateur.normal(0, 1, 200))))).dropna()
+    assert np.allclose(resultat["bb_haute"] - resultat["bb_mediane"],
+                       resultat["bb_mediane"] - resultat["bb_basse"])
 
 
 # --------------------------------------------------------------------------

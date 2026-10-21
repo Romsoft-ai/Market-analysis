@@ -223,6 +223,110 @@ def test_break_even_ne_s_arme_pas_avant_le_seuil():
 
 
 # --------------------------------------------------------------------------
+# Stop suiveur
+# --------------------------------------------------------------------------
+
+
+class StrategieSuiveuse(StrategieFactice):
+    """Propose comme stop la valeur de la colonne « propose » de chaque bougie."""
+
+    def ajuster_stop(self, sens, stop_actuel, bougie):
+        valeur = bougie.get("propose")
+        return None if pd.isna(valeur) else float(valeur)
+
+
+def avec_propositions(donnees: pd.DataFrame, propositions: dict[int, float]) -> pd.DataFrame:
+    donnees = donnees.copy()
+    donnees["propose"] = float("nan")
+    for i, valeur in propositions.items():
+        donnees.iloc[i, donnees.columns.get_loc("propose")] = valeur
+    return donnees
+
+
+def test_le_stop_suiveur_transforme_un_retour_en_gain():
+    """Le stop monte à 101,5 après la hausse : le retour sort en gain, pas à -1 R."""
+    signal = Signal(Sens.ACHAT, entree=100.0, stop=99.0, objectif=103.0)
+    donnees = avec_propositions(serie(
+        [PLAT] * 4
+        + [(100.0, 100.0, 100.0, 100.0)]
+        + [(100.0, 102.5, 100.0, 102.0)]  # hausse : la stratégie propose 101,5
+        + [(102.0, 102.0, 101.0, 101.2)]  # retour : le stop suivi est touché
+        + [PLAT] * 2
+    ), {5: 101.5})
+
+    resultat = Backtest(StrategieSuiveuse(signal), spread=0.0, break_even_a=None).executer(donnees)
+
+    trade = resultat.trades[0]
+    assert trade.motif == MotifSortie.STOP_SUIVEUR
+    assert trade.resultat_r == pytest.approx(1.5)
+    assert trade.stop_initial == 99.0
+    assert trade.stop_final == 101.5
+
+
+def test_le_stop_suiveur_ne_recule_jamais():
+    """Une proposition plus éloignée que le stop actuel est ignorée."""
+    signal = Signal(Sens.ACHAT, entree=100.0, stop=99.0, objectif=103.0)
+    donnees = avec_propositions(serie(
+        [PLAT] * 4
+        + [(100.0, 100.0, 100.0, 100.0)]
+        + [(100.0, 100.5, 100.0, 100.2)]  # proposition à 98 : plus loin, refusée
+        + [(100.2, 100.2, 98.5, 98.8)]  # le stop d'origine, 99, est touché
+        + [PLAT] * 2
+    ), {5: 98.0})
+
+    resultat = Backtest(StrategieSuiveuse(signal), spread=0.0, break_even_a=None).executer(donnees)
+
+    trade = resultat.trades[0]
+    assert trade.motif == MotifSortie.STOP
+    assert trade.resultat_r == pytest.approx(-1.0)
+
+
+def test_un_stop_deja_franchi_par_la_cloture_est_refuse():
+    """Poser un achat stoppé au-dessus du prix inventerait une sortie à un prix jamais coté."""
+    signal = Signal(Sens.ACHAT, entree=100.0, stop=99.0, objectif=103.0)
+    donnees = avec_propositions(serie(
+        [PLAT] * 4
+        + [(100.0, 100.0, 100.0, 100.0)]
+        + [(100.0, 100.8, 99.6, 99.7)]  # proposition à 100,5, au-dessus de la clôture
+        + [PLAT] * 3
+    ), {5: 100.5})
+
+    resultat = Backtest(StrategieSuiveuse(signal), spread=0.0, break_even_a=None).executer(donnees)
+
+    trade = resultat.trades[0]
+    assert trade.motif == MotifSortie.FIN_PERIODE
+    assert trade.stop_final == 99.0
+
+
+def test_le_stop_suiveur_fonctionne_aussi_en_vente():
+    signal = Signal(Sens.VENTE, entree=100.0, stop=101.0, objectif=97.0)
+    donnees = avec_propositions(serie(
+        [PLAT] * 4
+        + [(100.0, 100.0, 100.0, 100.0)]
+        + [(100.0, 100.0, 97.5, 98.0)]  # baisse : la stratégie propose 98,5
+        + [(98.0, 98.8, 98.0, 98.6)]  # rebond : le stop suivi est touché
+        + [PLAT] * 2
+    ), {5: 98.5})
+
+    resultat = Backtest(StrategieSuiveuse(signal), spread=0.0, break_even_a=None).executer(donnees)
+
+    trade = resultat.trades[0]
+    assert trade.motif == MotifSortie.STOP_SUIVEUR
+    assert trade.resultat_r == pytest.approx(1.5)
+
+
+def test_sans_proposition_le_stop_reste_fixe():
+    """Une stratégie qui ne redéfinit pas ajuster_stop garde son stop initial."""
+    signal = Signal(Sens.ACHAT, entree=100.0, stop=99.0, objectif=103.0)
+    donnees = serie([PLAT] * 4 + [(100.0, 100.0, 100.0, 100.0)]
+                    + [(100.0, 102.5, 100.0, 102.0)] * 2 + [PLAT] * 2)
+
+    resultat = Backtest(StrategieFactice(signal), spread=0.0, break_even_a=None).executer(donnees)
+
+    assert resultat.trades[0].stop_final == 99.0
+
+
+# --------------------------------------------------------------------------
 # Vente
 # --------------------------------------------------------------------------
 

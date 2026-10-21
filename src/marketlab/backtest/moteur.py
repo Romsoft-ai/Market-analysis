@@ -34,6 +34,12 @@ CE QUE LE MOTEUR SUPPOSE, ET QUI DOIT ÊTRE SU
    atteint le seuil puis revient au stop dans la même bougie, on ne sait pas dans
    quel ordre : le point 4 s'applique.
 
+5 bis. **Le stop suiveur se déplace aussi à la fin d'une bougie**, pour la même
+   raison. La stratégie propose un niveau (`ajuster_stop`), le moteur ne
+   l'accepte que s'il RESSERRE le stop et reste du bon côté de la clôture. Une
+   stratégie boguée ne peut donc ni éloigner un stop, ni en poser un que le prix
+   a déjà franchi, ce qui inventerait une sortie à un prix jamais coté.
+
 6. **Résultats exprimés en R** (multiples du risque pris) autant qu'en euros. Le R
    est indépendant de la taille de position : c'est la mesure honnête pour
    comparer des stratégies. Le montant sert à observer le drawdown.
@@ -58,6 +64,10 @@ class MotifSortie:
     OBJECTIF = "objectif"
     STOP = "stop"
     BREAK_EVEN = "break-even"
+    #: Stop atteint après avoir été déplacé par la stratégie. Distingué du stop
+    #: initial : la sortie peut se faire en gain, et la confondre avec une perte
+    #: fausserait la lecture des résultats.
+    STOP_SUIVEUR = "stop suiveur"
     FIN_PERIODE = "fin de période"
 
 
@@ -88,6 +98,9 @@ class Trade:
     risque_theorique: float = 0.0
     risque_reel: float = 0.0
     raison_signal: str = ""
+    # Niveau du stop au moment de la sortie. Égal au stop initial sauf si un
+    # break-even ou un stop suiveur l'a déplacé : c'est la trace de ce déplacement.
+    stop_final: float = 0.0
 
 
 @dataclass
@@ -107,6 +120,7 @@ class _Position:
     index_entree: int
     raison: str
     break_even_arme: bool = False
+    stop_deplace: bool = False
 
 
 @dataclass
@@ -133,6 +147,7 @@ class Resultat:
                     "date_sortie": t.date_sortie,
                     "entree": t.entree,
                     "stop_initial": t.stop_initial,
+                    "stop_final": t.stop_final,
                     "objectif": t.objectif,
                     "sortie": t.sortie,
                     "motif": t.motif,
@@ -376,9 +391,12 @@ class Backtest:
         # CONVENTION PESSIMISTE : le stop est évalué en premier. Si les deux
         # niveaux sont dans la bougie, on suppose le pire.
         if stop_touche:
-            motif = (
-                MotifSortie.BREAK_EVEN if position.break_even_arme else MotifSortie.STOP
-            )
+            if position.stop_deplace:
+                motif = MotifSortie.STOP_SUIVEUR
+            elif position.break_even_arme:
+                motif = MotifSortie.BREAK_EVEN
+            else:
+                motif = MotifSortie.STOP
             return self._cloturer(
                 position, position.stop, bougie.name, index, motif, capital
             )
@@ -389,9 +407,31 @@ class Backtest:
                 MotifSortie.OBJECTIF, capital,
             )
 
-        # Aucune sortie : le break-even peut s'armer pour les bougies suivantes.
+        # Aucune sortie : le stop peut se resserrer pour les bougies suivantes.
         self._armer_break_even(position, haut, bas)
+        self._suivre(position, bougie)
         return None
+
+    def _suivre(self, position: _Position, bougie: pd.Series) -> None:
+        """Applique le stop proposé par la stratégie, s'il est acceptable.
+
+        Deux refus, tous deux silencieux car ils ne sont pas des erreurs :
+
+        * un stop qui s'éloignerait du prix. Un stop suiveur ne recule jamais ;
+        * un stop déjà franchi par la clôture. Il déclencherait une sortie à la
+          bougie suivante à un niveau que le prix a quitté, donc à un prix fictif.
+        """
+        propose = self.strategie.ajuster_stop(position.sens, position.stop, bougie)
+        if propose is None:
+            return
+        cloture = float(bougie["close"])
+        if position.sens is Sens.ACHAT:
+            acceptable = position.stop < propose < cloture
+        else:
+            acceptable = cloture < propose < position.stop
+        if acceptable:
+            position.stop = float(propose)
+            position.stop_deplace = True
 
     def _armer_break_even(self, position: _Position, haut: float, bas: float) -> None:
         """Remonte le stop au prix d'entrée dès que le seuil en R est atteint.
@@ -454,4 +494,5 @@ class Backtest:
             risque_theorique=position.risque_theorique,
             risque_reel=position.montant_risque,
             raison_signal=position.raison,
+            stop_final=position.stop,
         )
