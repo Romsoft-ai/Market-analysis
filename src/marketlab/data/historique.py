@@ -189,6 +189,30 @@ def obtenir(
     return agregees
 
 
+def fin_de_la_derniere_bougie(parametres: dict) -> datetime:
+    """Borne de fin à utiliser pour recharger les données d'une expérience enregistrée.
+
+    Pour rejouer une expérience À L'IDENTIQUE, il faut recharger jusqu'à la même
+    date que lors du lancement, `fin_demandee`. Ce n'est pas un détail : une fin
+    demandée à minuit coupe la dernière bougie d'un marché ouvert à cette heure
+    (GBPUSD) après sa première minute, mais laisse entière celle d'un marché fermé
+    (l'or s'arrête à 23:59). Aucune borne déduite après coup ne retrouve les deux.
+
+    Les expériences antérieures au 21 octobre 2026 n'enregistraient pas cette
+    date. Pour elles, on recharge jusqu'à la dernière minute de la dernière bougie,
+    ce qui peut différer du lancement sur cette seule bougie, donc au plus sur le
+    trade soldé en fin de période.
+    """
+    if parametres.get("fin_demandee"):
+        return pd.Timestamp(parametres["fin_demandee"]).to_pydatetime()
+    fin = (
+        pd.Timestamp(parametres["fin_reelle"])
+        + pd.Timedelta(parametres["echelle"])
+        - pd.Timedelta(minutes=1)
+    )
+    return fin.to_pydatetime()
+
+
 def periode_fiable(instrument: str) -> datetime:
     """Date à partir de laquelle les cotations sont propres au courtier.
 

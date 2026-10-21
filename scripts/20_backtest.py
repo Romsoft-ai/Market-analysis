@@ -170,6 +170,9 @@ def main() -> int:
         "courtier": a.courtier,
         "echelle": a.echelle,
         "debut_demande": a.debut.date(),
+        # Indispensable pour rejouer l'expérience à l'identique : voir
+        # historique.fin_de_la_derniere_bougie.
+        "fin_demandee": a.fin.isoformat(),
         "debut_reel": bougies.index[0],
         "fin_reelle": bougies.index[-1],
         "bougies": len(bougies),

@@ -22,7 +22,7 @@ import pandas as pd
 
 from marketlab.backtest import journal
 from marketlab.backtest.verification import verifier_lot
-from marketlab.data.historique import obtenir
+from marketlab.data.historique import fin_de_la_derniere_bougie, obtenir
 from marketlab.strategies.registre import depuis_journal
 
 
@@ -59,7 +59,7 @@ def main() -> int:
         parametres["courtier"],
         parametres["echelle"],
         pd.Timestamp(parametres["debut_reel"]).to_pydatetime(),
-        pd.Timestamp(parametres["fin_reelle"]).to_pydatetime(),
+        fin_de_la_derniere_bougie(parametres),
     )
     preparees = strategie.preparer(donnees)
 

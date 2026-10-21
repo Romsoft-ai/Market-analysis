@@ -67,3 +67,23 @@ def mt5_session(broker: BrokerConfig) -> Iterator[type[mt5]]:
         yield mt5
     finally:
         mt5.shutdown()
+
+
+def reconnecter(broker: BrokerConfig) -> None:
+    """Referme puis rouvre la session, après une perte de connexion.
+
+    Utilisé par la boucle du robot, qui garde le même module `mt5` : les objets
+    qui en dépendent (courtier, flux) restent valables après la reconnexion.
+    """
+    mt5.shutdown()
+    if not mt5.initialize(
+        path=str(broker.terminal_path),
+        login=broker.login,
+        password=broker.password,
+        server=broker.server,
+        timeout=_TIMEOUT_MS,
+    ):
+        raise _fail(f"La reconnexion au compte {broker.login} ({broker.server})")
+    terminal = mt5.terminal_info()
+    if terminal is None or not terminal.connected:
+        raise MT5Error(f"Reconnecté au terminal, mais pas au serveur {broker.server!r}")

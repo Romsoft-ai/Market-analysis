@@ -19,7 +19,7 @@ from plotly.subplots import make_subplots
 
 from marketlab.backtest import journal
 from marketlab.backtest.verification import bougie_de_signal, decimales, verifier
-from marketlab.data.historique import obtenir
+from marketlab.data.historique import fin_de_la_derniere_bougie, obtenir
 from marketlab.strategies.registre import depuis_journal
 
 st.set_page_config(page_title="Inspecteur de trades", layout="wide")
@@ -50,7 +50,7 @@ def bougies_preparees(parametres: dict) -> pd.DataFrame:
         parametres["courtier"],
         parametres["echelle"],
         pd.Timestamp(parametres["debut_reel"]).to_pydatetime(),
-        pd.Timestamp(parametres["fin_reelle"]).to_pydatetime(),
+        fin_de_la_derniere_bougie(parametres),
     )
     strategie = depuis_journal(parametres)
     assert strategie is not None, "stratégie retirée : filtrée avant l'appel"
